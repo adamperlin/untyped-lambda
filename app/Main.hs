@@ -17,8 +17,7 @@ doEval :: Expr -> Env -> IO Env
 doEval expr curEnv =  let (res, env') = runInterp (eval expr) curEnv in
                             (case res of
                                 Left err -> print err
-                                Right r -> (print r) >> (putStrLn $ toStringResult r) )>> return env'
-                    
+                                Right (Res c) -> putStrLn $ printClos c) >> return env'
 
 interpLoop :: StateT Env IO ()
 interpLoop = do

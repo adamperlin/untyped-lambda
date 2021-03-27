@@ -4,26 +4,29 @@ module Parse where
 
 import Text.Parsec
 
-data Expr = Bind Char | Unit | Var Char | Lambda Expr Expr | App Expr Expr deriving (Show, Eq)
+data Expr = Bind String | Unit | Var String | Lambda String Expr | App Expr Expr deriving (Show, Eq)
 
 type Error = String
+
+word :: Stream s m Char => ParsecT s u m String
+word = many1 letter
 
 bind :: Stream s m Char => ParsecT s u m Expr
 bind = do
         string "bind"
         many1 space
-        l <- letter
+        l <- word
         return (Bind l)
 
 var :: Stream s m Char => ParsecT s u m Expr
 var = do
-        l <- letter
-        return (Var l)
+        w <- word
+        return (Var w)
 
 lambda :: Stream s m Char => ParsecT s u m Expr
 lambda = do
         string "\\"
-        v <- var
+        v <- word
         string "."
         spaces
         e <- expr
@@ -51,7 +54,7 @@ expr :: Stream s m Char => ParsecT s u m Expr
 expr = chainl atom app Unit
 
 parseLine :: Stream s m Char => ParsecT s u m Expr
-parseLine = try (expr >>= \e -> eof >> return e) <|> (bind >>= \e -> eof >> return e)
+parseLine = try (bind >>= \e -> eof >> return e) <|> (expr >>= \e -> eof >> return e)
 
 parseExpr :: String -> Either ParseError Expr
 parseExpr = parse parseLine ""

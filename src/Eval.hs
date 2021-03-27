@@ -9,80 +9,55 @@ import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.Trans.Except
 import qualified Control.Monad.Trans.State.Lazy as LT
 
---toString :: Closure -> String
---toString (expr, scope) = case expr of
-        --Var v -> case lookup v scope of
-                    --Just Unbound -> v : ""
-                    --Just e -> toString (e, scope)
-                    --Nothing -> v : ""
-        --Lambda (Var v) e -> "(" ++ '\\' : v : ("." ++ toString (e, scope)) ++ ")"
-        --App e1 e2 -> toString (e1, scope) ++ " " ++ toString (e2, scope)
-        --Unit -> "()"
-
---toString :: Result -> String
---toString (Res v (Closure p env)) = case lookup v env of
---                                    Just c -> toString $ Res 
- --                                   Nothing -> "(\\" ++ [v] ++ toString (Res )
-
-
-
-
 newtype EvalError = Failure String deriving (Show, Eq)
 
-type Env = Map Char Closure
-data Closure =  Closure (Expr, Env) deriving (Show, Eq)
-data Result = Res Char Closure deriving (Show, Eq)
+type Env = Map String Closure
+data Closure = Closure (Maybe String) (Expr, Env) deriving (Show, Eq)
+newtype Result = Res Closure deriving (Show, Eq)
 type InterpMonad = ExceptT EvalError (State Env) Result
-
-toStringResult :: Result -> String
-toStringResult (Res v clos@(Closure (Bind b, env))) = b : ""
-toStringResult (Res v clos@(Closure (e, env))) = case lookup v env of
-                                                Nothing -> "(\\" ++ [v] ++ "." ++ (toStringClosure clos) ++ ")"
-                                                _ -> toStringClosure clos
-
-toStringClosure :: Closure -> String
-toStringClosure (Closure (expr, env)) = case expr of
-                                    Var v -> case lookup v env of
-                                                Just c -> toStringClosure c
-                                                Nothing -> v : ""
-                                    Bind v -> v : ""
-                                    Lambda (Var p) e -> "(\\" ++ [p] ++ "." ++ toStringClosure (Closure (e, env)) ++ ")"
-                                    App e1 e2 -> toStringClosure (Closure (e1, env)) ++ " " ++ toStringClosure (Closure (e2, env))
 
 eval :: Expr -> InterpMonad
 eval (Var v) = do
                     env <- get
                     case lookup v env of
-                        Nothing -> throwError $ Failure $ "unbound variable " ++ [v]
-                        Just (Closure (expr, cEnv)) -> do
-                                                            put cEnv
-                                                            e <- eval expr
-                                                            put env
-                                                            return e
+                        Nothing -> throwError $ Failure $ "unbound variable " ++ v
+                        Just cl -> return $ Res cl
 
-eval (Bind b) = let c = Closure (Bind b, empty) in modify (insert b c) >> (return $ Res b c)
-
-eval (Lambda (Var param) body) = do
-                                    oldEnv <- get
-                                    modify (delete param)
-                                    newEnv <- get
-                                    put oldEnv
-                                    return $ Res param (Closure (body, newEnv))
+{- (\x.(\x.x)) y -}
+{-(\x.x) -> -}
+eval (Lambda nv e) = do
+                        env <- get
+                        return $ Res (Closure (Just nv) (e, env))
 
 eval (App e1 e2) = do
-                        prevEnv <- get
-                        Res v2 c2 <- eval e2
-                        Res v1 (Closure (cExpr1, cEnv1)) <- eval e1
-                        case lookup v1 cEnv1 of
-                            Nothing -> do
-                                            put cEnv1
-                                            modify (insert v1 c2)
-                                            e <- eval cExpr1
-                                            put prevEnv
-                                            return e
-                            Just e -> throwError $ Failure $ "param " ++ [v1] ++ " already bound"
+                        Res c1 <- eval e1
+                        Res c2 <- eval e2
+                        case c1 of
+                            Closure (Just nv) (exp, cEnv) -> do
+                                                        prevEnv <- get
+                                                        put cEnv
+                                                        modify (insert nv c2)
+                                                        r <- eval exp
+                                                        put prevEnv
+                                                        return r
+                                                       
+                            _ -> throwError $ Failure "cannot apply to non-lambda lhs"
 
-eval Unit = return $ Res '_' (Closure (Unit, empty))
+eval (Bind b) = do
+                    env <- get
+                    modify (insert b (Closure Nothing (Bind b, env)))
+                    return $ Res $ Closure Nothing (Unit, empty)
+                        
+printClos :: Closure -> String
+printClos (Closure (Just x) (expr, env)) = "(\\" ++ x ++ "." ++ toStringExpr (expr, insert x (Closure Nothing (Bind x, env)) env) ++ ")"
+printClos (Closure Nothing (expr, env)) = toStringExpr (expr, env)
+
+toStringExpr :: (Expr, Env) -> String
+toStringExpr (Var v, env) = maybe "lookup error" printClos (lookup v env)
+toStringExpr (Lambda nv exp, env) = "(\\" ++ nv ++ "." ++ toStringExpr (exp, insert nv (Closure Nothing (Bind nv, env)) env) ++ ")"
+toStringExpr (App e1 e2, env) = toStringExpr (e1, env) ++ " " ++ toStringExpr (e2, env)
+toStringExpr (Bind b, env) = b
+toStringExpr (Unit, _) = "Unit"
 
 runInterp :: InterpMonad -> Env -> (Either EvalError Result, Env)
-runInterp im prevState = runState (runExceptT im) prevState
+runInterp = runState . runExceptT
