@@ -4,6 +4,7 @@ module Eval where
 import Prelude hiding (lookup)
 import Parse
 import Data.Char
+import Data.Set
 
 newtype EvalError = Failure String deriving (Show, Eq)
 
@@ -11,7 +12,8 @@ subst :: Expr -> String -> Expr -> Expr
 subst what for exp = 
     case exp of
         var@(Var v) -> if v == for then what else var
-        l@(Lambda nv e) -> Lambda nv (subst what for e)
+        lam@(Lambda nv e) -> if nv /= for then Lambda nv (subst what for e)
+                                else lam
         App e1 e2 -> App (subst what for e1) (subst what for e2)
 
 isBetaReducible :: Expr -> Bool
@@ -26,12 +28,12 @@ betaReduce :: Expr -> Expr
 betaReduce var@(Var v) = var
 betaReduce l@(Lambda nv e) = Lambda nv (betaReduce e)
 betaReduce app@(App e1 e2) = let (r1, r2) = (betaReduce e1, betaReduce e2)
-                                 (r1', r2') = (alphaReduceIfConflict r1 r2, r2)
+                                 r1' = renameIfConflict r1 $ findFreeReferences r2 empty `union` findFreeReferences r1 empty
                                  in
                                      case r1' of
                                          Lambda nv e ->
-                                             betaReduce (subst r2' nv e)
-                                         _ -> App (betaReduce r1') (betaReduce r2')
+                                             betaReduce (subst r2 nv e)
+                                         _ -> App (betaReduce r1') (betaReduce r2)
 
 splitName :: String -> (String, String)
 splitName s = if not . isDigit $ last s then
@@ -49,6 +51,11 @@ newName s = if isDigit (last s) then
                 else
                     s ++ "0"
 
+rename :: String -> Set String -> String
+rename s conflicts
+    | s `member` conflicts = rename (newName s) conflicts
+    | otherwise = s
+
 alphaReduce :: Expr -> String -> String -> Expr
 alphaReduce var@(Var v) old new = 
     if v == old then Var new
@@ -63,22 +70,28 @@ alphaReduce lam@(Lambda nv e) old new
 
 alphaReduce app@(App e1 e2) old new = App (alphaReduce e1 old new) (alphaReduce e2 old new)
 
-alphaReduceIfConflict :: Expr -> Expr -> Expr
-alphaReduceIfConflict e1 e2 = case (e1, e2) of
-                                (Lambda nv0 body0, Lambda nv1 body1) ->
-                                                        if nv1 == nv0 then
-                                                            let nv0' = newName nv0
-                                                                newBody = alphaReduce body0 nv0 nv0' in
-                                                                Lambda nv0' (alphaReduceIfConflict newBody e2)
-                                                        else Lambda nv0 (alphaReduceIfConflict body0 e2)
-                                (Lambda nv0 body0, Var v) ->
-                                                            if nv0 == v then
-                                                                let nv0' = newName nv0
-                                                                    newBody = alphaReduce body0 nv0 nv0' in
-                                                                    Lambda nv0' (alphaReduceIfConflict newBody e2)
-                                                            else Lambda nv0 (alphaReduceIfConflict body0 e2)
-                                (App expr1 expr2, _) -> App (alphaReduceIfConflict expr1 e2) (alphaReduceIfConflict expr2 e2)
-                                _ -> e1
+
+findFreeReferences :: Expr -> Set String -> Set String
+findFreeReferences (Var v) bound
+    | v `member` bound = empty
+    | otherwise = insert v empty
+
+findFreeReferences (Lambda nv e) bound = findFreeReferences e (insert nv bound)
+findFreeReferences (App e1 e2) bound = refs1 `union` refs2
+                                        where refs1 = findFreeReferences e1 bound
+                                              refs2 = findFreeReferences e2 bound
+
+renameIfConflict :: Expr -> Set String -> Expr
+renameIfConflict expr conflicts = case expr of
+                            lam@(Lambda nv e) ->
+                                let nv' = rename nv conflicts in
+                                    if nv' == nv then
+                                        Lambda nv (renameIfConflict e conflicts)
+                                    else
+                                        Lambda nv' $ renameIfConflict (alphaReduce e nv nv') conflicts
+
+                            App left right -> App (renameIfConflict left conflicts) (renameIfConflict right conflicts)
+                            var@(Var _) -> var
 
 topEval :: Expr -> Expr
 topEval expr = if isBetaReducible expr then

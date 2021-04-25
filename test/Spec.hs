@@ -1,7 +1,7 @@
 import Test.HUnit
-import Eval (alphaReduce, topEval)
+import Eval (alphaReduce, topEval, findFreeReferences)
 import Parse
-import Data.Map
+import Data.Set
 import Control.Monad.Trans.Except ( runExceptT, ExceptT, throwE )
 import Text.Parsec
 import Control.Monad.IO.Class ( MonadIO(liftIO) )
@@ -48,7 +48,7 @@ testReduceChurchNumeralsAddition :: Test
 testReduceChurchNumeralsAddition = TestCase $ 
                                         runForcedTest $ do
                                                     expr <-  forceParse "(\\m.\\n.\\f.\\x.m f (n f x)) (\\f.\\x.f (f (f x))) (\\f.\\x.f (f (f x)))"
-                                                    want <-  forceParse "(\\f0.\\x.f0 (f0 (f0 (f0 (f0 (f0 x))))))"
+                                                    want <-  forceParse "(\\f.\\x.f (f (f (f (f (f x))))))"
                                                     let got = topEval expr
                                                         in
                                                         liftIO $ assertEqual "church numeral addition" got want
@@ -56,7 +56,7 @@ testReduceChurchNumeralsAddition = TestCase $
 testReduceChurchNumeralsMult = TestCase $
                                     runForcedTest (do
                                                         expr <- forceParse "(\\m.\\n.\\f.\\x.m (n f) x) (\\f.\\x.f (f (f x))) (\\f.\\x.f (f (f x)))"
-                                                        want <- forceParse "(\\f0.\\x.f0 (f0 (f0 (f0 (f0 (f0 (f0 (f0 (f0 x)))))))))"
+                                                        want <- forceParse "(\\f.\\x.f (f (f (f (f (f (f (f (f x)))))))))"
                                                         let got = topEval expr
                                                             in
                                                                 liftIO $ assertEqual "church numeral multiplication" got want)
@@ -77,18 +77,51 @@ testAlphaReduceLambda = TestCase $
                                         in
                                             assertEqual "alpha reduce" (alphaReduce expr old new) want
 
-testBetaReduceNameConflict = TestCase $
-                                        let expr = App (Lambda "x" (App (Var "x") (Var "x"))) (Lambda "x" (Var "x"))
-                                            want = Lambda "x0" (Lambda "x" (Var "x"))
-                                            in
-                                                assertEqual "beta reduce name conflict" want (topEval expr)
-
 testBetaReduceInnerConflict = TestCase $
                                             let expr = App (Lambda "f" (Lambda "x" (App (Var "f") (Var "x")))) (Var "x")
                                                 want = Lambda "x0" (App (Var "x") (Var "x0"))
                                                 got = topEval expr
                                                 in
                                                     assertEqual "beta reduce inner name conflict" want got
+{--
+"\y.\x.\x0.x y" x
+"\x0.\x1.x0 x"
+--}
+testBetaReduceMutlipleConflicts = TestCase $
+                                                let expr = App (Lambda "y" (Lambda "x" (Lambda "x0" (App (Var "x") (Var "y"))))) (Var "x")
+                                                    want = Lambda "x0" (Lambda "x1" (App (Var "x0") (Var "x")))
+                                                    got = topEval expr
+                                                    in
+                                                        assertEqual "beta reduce multiple name conflicts" want got
+
+testBetaReduceShadowedBoundVars = TestCase $
+                                                let expr = App (Lambda "x" (Lambda "x" (Var "x"))) (Var "x")
+                                                    want = Lambda "x0" (Var "x0")
+                                                    got = topEval expr
+                                                    in
+                                                        assertEqual "shadowed bound vars" want got
+
+testFindFreeReferences = TestCase $
+                                     let expr = Lambda "x" (App (Lambda "y" (Var "z")) (Var "x"))
+                                         want = fromList ["z"]
+                                         got = findFreeReferences expr empty
+                                         in
+                                             assertEqual "find free references" want got
+-- (\x.\y.x y) (\z.y z)
+testBetaReduceComplexConflict = TestCase $
+                                            let expr = App (Lambda "x" (Lambda "y" (App (Var "x") (Var "y")))) (Lambda "z" (App (Var "y") (Var "z")))
+                                                want = Lambda "y0" (App (Var "y") (Var "y0"))
+                                                got = topEval expr
+                                                in
+                                                    assertEqual "more complex free variable conflict" want got
+
+-- (\x.\y.x y0) y
+testReduceConflictAfterRename = TestCase $
+                                            let expr = App (Lambda "x" (Lambda "y" (App (Var "y") (Var "y0")))) (Var "y")
+                                                want = Lambda "y1" (App (Var "y1") (Var "y0"))
+                                                got = topEval expr
+                                                in
+                                                    assertEqual "name conflict after rename" want got
 
 tests :: [Test]
 tests = [
@@ -99,7 +132,12 @@ tests = [
     testAlphaReduceVar,
     testAlphaReduceLambda,
     --testBetaReduceNameConflict
-    testBetaReduceInnerConflict]
+    testFindFreeReferences,
+    testBetaReduceInnerConflict,
+    testBetaReduceMutlipleConflicts,
+    testBetaReduceShadowedBoundVars,
+    testBetaReduceComplexConflict,
+    testReduceConflictAfterRename]
 
 main :: IO Counts
 main = runTestTT $ TestList tests
