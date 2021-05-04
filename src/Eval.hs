@@ -27,12 +27,12 @@ isBetaReducible (Lambda nv e) = isBetaReducible e
 betaReduce :: Expr -> Expr
 betaReduce var@(Var v) = var
 betaReduce l@(Lambda nv e) = Lambda nv (betaReduce e)
-betaReduce app@(App e1 e2) = let (r1, r2) = (betaReduce e1, betaReduce e2)
-                                 r1' = renameIfConflict r1 $ findFreeReferences r2 empty `union` findFreeReferences r1 empty
+betaReduce app@(App e1 e2) = --let (r1, r2) = (betaReduce e1, betaReduce e2)
+                                 let r2 = e2
+                                     r1' = renameIfConflict e1 $ findFreeReferences r2 empty `union` findFreeReferences e1 empty
                                  in
                                      case r1' of
-                                         Lambda nv e ->
-                                             betaReduce (subst r2 nv e)
+                                         Lambda nv e -> subst r2 nv e
                                          _ -> App (betaReduce r1') (betaReduce r2)
 
 splitName :: String -> (String, String)
@@ -69,7 +69,6 @@ alphaReduce lam@(Lambda nv e) old new
     | otherwise = Lambda nv (alphaReduce e old new)
 
 alphaReduce app@(App e1 e2) old new = App (alphaReduce e1 old new) (alphaReduce e2 old new)
-
 
 findFreeReferences :: Expr -> Set String -> Set String
 findFreeReferences (Var v) bound

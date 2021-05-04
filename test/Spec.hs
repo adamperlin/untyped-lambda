@@ -61,6 +61,23 @@ testReduceChurchNumeralsMult = TestCase $
                                                             in
                                                                 liftIO $ assertEqual "church numeral multiplication" got want)
 
+testReduceChurchNumeralsFactorial = TestCase $
+                                        runForcedTest (do
+                                                            expr <- forceParse "((\\x.(\\y.x (y y)) (\\y.x (y y))) (\\f.\\n.((\\n.n (\\x.\\a.\\b.b) (\\a.\\b.a)) n) (\\f.\\x.f x) ((\\m.\\n.\\f.m (n f)) n (f ((\\n.\\f.\\x.n (\\g.\\h.h (g f)) (\\u.x) (\\u.u)) n))))) (\\f.\\x.f (f (f (f x))))"
+                                                            want <- forceParse "(\\f.(\\x.(f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f (f x))))))))))))))))))))))))))"
+                                                            let got = topEval expr
+                                                                in
+                                                                    liftIO $ assertEqual "church numeral factorial" got want
+                                                        )
+
+testReduceChurchNumeralsDivision = TestCase $
+                                        runForcedTest (do 
+                                                            expr <- forceParse "(\\n.\\m.((\\f.(\\x.f (x x)) (\\x.f (x x))) (\\c.\\n.\\m.\\f.\\x.(\\d.((\\n.n (\\x.\\a.\\b.b) (\\a.\\b.a)) d) ((\\f.\\x.x) f x) (f (c d m f x))) ((\\m.\\n.n (\\n.\\f.\\x.n (\\g.\\h.h (g f)) (\\u.x) (\\u.u)) m) n m))) ((\\n.\\f.\\x.f (n f x)) n) m) (\\f.\\x.f (f (f (f (f (f (f (f (f x))))))))) (\\f.\\x.f (f (f x)))"
+                                                            want <- forceParse "(\\f.\\x.f (f (f x)))"
+                                                            let got = topEval expr
+                                                                in
+                                                                    liftIO $ assertEqual "church numeral division" got want)
+
 testAlphaReduceVar = TestCase $
                                 let expr = Var "x"
                                     want = Var "x0"
@@ -129,6 +146,8 @@ tests = [
     testReduceVar,
     testReduceChurchNumeralsAddition,
     testReduceChurchNumeralsMult,
+    testReduceChurchNumeralsFactorial,
+    testReduceChurchNumeralsDivision,
     testAlphaReduceVar,
     testAlphaReduceLambda,
     --testBetaReduceNameConflict

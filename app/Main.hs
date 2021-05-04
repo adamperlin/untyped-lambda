@@ -6,7 +6,7 @@ import Parse
 import Eval
 import Data.Map hiding (null)
 import Control.Monad.State.Lazy (State, runState)
-import Control.Monad.Trans.Except
+import Control.Monad.Trans.Except ()
 import Control.Monad.Trans.State
 
 
@@ -32,6 +32,7 @@ interpLoop = do
                                         case result of
                                             Left err -> print err >> interpLoop
                                             Right expr -> do
+                                                    --print expr
                                                     doEval expr
                                                     interpLoop
 
